@@ -1,0 +1,26 @@
+{
+  "name": "@mspkapps/auth-client",
+  "version": "0.1.0",
+  "description": "Lightweight client for Your Auth Service",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": ["auth","sdk","jwt","client"],
+  "author": "MSPK Apps",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mspk5196/authServiceNpm.git"
+  },
+  "bugs": { "url": "https://github.com/mspk5196/authServiceNpm/issues" },
+  "homepage": "https://github.com/mspk5196/authServiceNpm#readme",
+  "engines": { "node": ">=18" }
+}
