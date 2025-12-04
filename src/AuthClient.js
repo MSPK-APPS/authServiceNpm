@@ -1,73 +1,132 @@
+// ESM module
 import { AuthError } from './errors.js';
 
 export class AuthClient {
-  constructor(opts = {}) {
-    this.baseUrl = opts.baseUrl?.replace(/\/+$/,'') || 'http://localhost:5001/api/v1';
-    this.apiKey = opts.apiKey || null;        // Public key (optional)
-    this.apiSecret = opts.apiSecret || null;  // NEVER use secret in browser
-    this.token = null;
-    this.fetchFn = opts.fetch || fetch;
+  constructor({
+    apiKey,
+    apiSecret,
+    baseUrl = 'https://cpanel.backend.mspkapps.in/api/v1',
+    storage,
+    fetch: fetchFn
+  } = {}) {
+    if (!apiKey) throw new Error('apiKey is required');
+    if (!apiSecret) throw new Error('apiSecret is required'); // note: avoid exposing secret in browsers if possible
+    this.apiKey = apiKey;
+    this.apiSecret = apiSecret;
+    this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.fetch = fetchFn || (typeof fetch !== 'undefined' ? fetch : null);
+    if (!this.fetch) throw new Error('No fetch available. Pass { fetch } or run on Node 18+/browsers.');
+
+    this.storage = storage || (typeof window !== 'undefined' ? window.localStorage : null);
+    this.tokenKey = 'auth_user_token';
+    this.token = this._load(this.tokenKey);
+  }
+
+  // ---------- storage helpers ----------
+  _load(key) {
+    if (!this.storage) return null;
+    try { return this.storage.getItem(key); } catch { return null; }
+  }
+  _save(key, val) {
+    if (!this.storage) return;
+    try { this.storage.setItem(key, val); } catch { /* ignore */ }
+  }
+  _clear(key) {
+    if (!this.storage) return;
+    try { this.storage.removeItem(key); } catch { /* ignore */ }
+  }
+
+  // ---------- internal builders ----------
+  _buildUrl(path) {
+    const p = path.startsWith('/') ? path.slice(1) : path;
+    return `${this.baseUrl}/${encodeURIComponent(this.apiKey)}/${p}`;
+  }
+
+  _headers(extra = {}) {
+    return {
+      'Content-Type': 'application/json',
+      'X-API-Secret': this.apiSecret,
+      ...(this.token ? { Authorization: `UserToken ${this.token}` } : {}),
+      ...extra
+    };
   }
 
   setToken(token) {
-    this.token = token;
+    this.token = token || null;
+    if (token) this._save(this.tokenKey, token);
+    else this._clear(this.tokenKey);
   }
 
-  clearToken() {
-    this.token = null;
+  getAuthHeader() {
+    return this.token ? { Authorization: `UserToken ${this.token}` } : {};
   }
 
-  async register({ email, password, name, username }) {
-    return this._request('POST', '/register', { email, password, name, username });
+  logout() {
+    this.setToken(null);
   }
 
-  async login({ email, password }) {
-    const res = await this._request('POST', '/login', { email, password });
-    if (res?.data?.access_token) this.token = res.data.access_token;
-    return res;
+  // ---------- public API methods ----------
+  async register({ email, username, password, name }) {
+    const resp = await this.fetch(this._buildUrl('auth/register'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ email, username, password, name })
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Register failed');
+    const token = json?.data?.user_token;
+    if (token) this.setToken(token);
+    return json;
+  }
+
+  async login({ email, username, password }) {
+    const payload = email ? { email, password } : { username, password };
+    const resp = await this.fetch(this._buildUrl('auth/login'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify(payload)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Login failed');
+    const token = json?.data?.user_token;
+    if (token) this.setToken(token);
+    return json;
   }
 
   async getProfile() {
-    return this._request('GET', '/user/profile');
-  }
-
-  async verifyEmail(token) {
-    return this._request('GET', `/verify-email?token=${encodeURIComponent(token)}`);
-  }
-
-  // Generic authed request to your protected API (public layer)
-  async authed(path, options = {}) {
-    return this._request(options.method || 'GET', path, options.body, options);
-  }
-
-  async _request(method, path, body, extra = {}) {
-    const headers = { 'Content-Type': 'application/json' };
-
-    // Optional API key/secret (only server-side for secret)
-    if (this.apiKey) headers['X-API-Key'] = this.apiKey;
-    if (this.apiSecret) headers['X-API-Secret'] = this.apiSecret;
-
-    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
-
-    const url = path.startsWith('http') ? path : this.baseUrl + path;
-
-    const resp = await this.fetchFn(url, {
-      method,
-      headers,
-      body: body && method !== 'GET' ? JSON.stringify(body) : undefined
+    const resp = await this.fetch(this._buildUrl('user/profile'), {
+      method: 'GET',
+      headers: this._headers()
     });
-
-    const json = await resp.json().catch(() => ({}));
-
-    if (!resp.ok || json.success === false) {
-      throw new AuthError(
-        json.message || 'Request failed',
-        resp.status,
-        json.error || 'REQUEST_FAILED',
-        json
-      );
-    }
-
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Profile failed');
     return json;
   }
+
+  // Generic authorized call for extra endpoints
+  async authed(path, { method = 'GET', body, headers } = {}) {
+    const resp = await this.fetch(this._buildUrl(path), {
+      method,
+      headers: this._headers(headers),
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Request failed');
+    return json;
+  }
+}
+
+// ---------- helpers ----------
+async function safeJson(resp) {
+  try { return await resp.json(); } catch { return null; }
+}
+
+function toError(resp, json, fallback) {
+  const err = new AuthError(
+    json?.message || fallback || 'Request failed',
+    resp.status,
+    json?.code || json?.error || 'REQUEST_FAILED',
+    json
+  );
+  return err;
 }
