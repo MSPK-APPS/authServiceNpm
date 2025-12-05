@@ -2,13 +2,18 @@
 import { AuthError } from './errors.js';
 
 export class AuthClient {
+  // Convenience: allow users to create with only key/secret
+  static create(apiKey, apiSecret, opts = {}) {
+    return new AuthClient({ apiKey, apiSecret, ...opts });
+  }
+
   constructor({
     apiKey,
     apiSecret,
     baseUrl = 'https://cpanel.backend.mspkapps.in/api/v1',
     storage,
     fetch: fetchFn,
-    keyInPath = false // default: use headers, not key in URL
+    keyInPath = true, // default: use headers, not key in URL
   } = {}) {
     if (!apiKey) throw new Error('apiKey is required');
     if (!apiSecret) throw new Error('apiSecret is required'); // do not expose in browsers for prod
