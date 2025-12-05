@@ -6,6 +6,7 @@ export class AuthClient {
     apiKey,
     apiSecret,
     baseUrl = 'https://cpanel.backend.mspkapps.in/api/v1',
+    keyInPath = true,
     storage,
     fetch: fetchFn
   } = {}) {
@@ -14,6 +15,7 @@ export class AuthClient {
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.keyInPath = !!keyInPath;
     this.fetch = fetchFn || (typeof fetch !== 'undefined' ? fetch : null);
     if (!this.fetch) throw new Error('No fetch available. Pass { fetch } or run on Node 18+/browsers.');
 
@@ -39,12 +41,15 @@ export class AuthClient {
   // ---------- internal builders ----------
   _buildUrl(path) {
     const p = path.startsWith('/') ? path.slice(1) : path;
-    return `${this.baseUrl}/${encodeURIComponent(this.apiKey)}/${p}`;
+    return this.keyInPath
+      ? `${this.baseUrl}/${encodeURIComponent(this.apiKey)}/${p}`
+      : `${this.baseUrl}/${p}`;
   }
 
   _headers(extra = {}) {
     return {
       'Content-Type': 'application/json',
+      'X-API-Key': this.apiKey,
       'X-API-Secret': this.apiSecret,
       ...(this.token ? { Authorization: `UserToken ${this.token}` } : {}),
       ...extra
