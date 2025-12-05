@@ -88,7 +88,7 @@ export class AuthClient {
   }
 
   async getProfile() {
-    const resp = await this.fetch(this._buildUrl('user/profile'), {
+    const resp = await this.fetch(this._buildUrl('auth/user/profile'), {
       method: 'GET',
       headers: this._headers()
     });
