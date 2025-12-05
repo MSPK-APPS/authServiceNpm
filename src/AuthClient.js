@@ -6,37 +6,31 @@ export class AuthClient {
     apiKey,
     apiSecret,
     baseUrl = 'https://cpanel.backend.mspkapps.in/api/v1',
-    keyInPath = true,
     storage,
-    fetch: fetchFn
+    fetch: fetchFn,
+    keyInPath = false // default: use headers, not key in URL
   } = {}) {
     if (!apiKey) throw new Error('apiKey is required');
-    if (!apiSecret) throw new Error('apiSecret is required'); // note: avoid exposing secret in browsers if possible
+    if (!apiSecret) throw new Error('apiSecret is required'); // do not expose in browsers for prod
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.keyInPath = !!keyInPath;
-    this.fetch = fetchFn || (typeof fetch !== 'undefined' ? fetch : null);
-    if (!this.fetch) throw new Error('No fetch available. Pass { fetch } or run on Node 18+/browsers.');
 
-    this.storage = storage || (typeof window !== 'undefined' ? window.localStorage : null);
+    const f = fetchFn || (typeof window !== 'undefined' ? window.fetch : (typeof fetch !== 'undefined' ? fetch : null));
+    if (!f) throw new Error('No fetch available. Pass { fetch } or run on Node 18+/browsers.');
+    // Bind to avoid “Illegal invocation”
+    this.fetch = (...args) => f(...args);
+
+    this.storage = storage ?? (typeof window !== 'undefined' ? window.localStorage : null);
     this.tokenKey = 'auth_user_token';
     this.token = this._load(this.tokenKey);
   }
 
   // ---------- storage helpers ----------
-  _load(key) {
-    if (!this.storage) return null;
-    try { return this.storage.getItem(key); } catch { return null; }
-  }
-  _save(key, val) {
-    if (!this.storage) return;
-    try { this.storage.setItem(key, val); } catch { /* ignore */ }
-  }
-  _clear(key) {
-    if (!this.storage) return;
-    try { this.storage.removeItem(key); } catch { /* ignore */ }
-  }
+  _load(key) { if (!this.storage) return null; try { return this.storage.getItem(key); } catch { return null; } }
+  _save(key, val) { if (!this.storage) return; try { this.storage.setItem(key, val); } catch {} }
+  _clear(key) { if (!this.storage) return; try { this.storage.removeItem(key); } catch {} }
 
   // ---------- internal builders ----------
   _buildUrl(path) {
@@ -62,13 +56,8 @@ export class AuthClient {
     else this._clear(this.tokenKey);
   }
 
-  getAuthHeader() {
-    return this.token ? { Authorization: `UserToken ${this.token}` } : {};
-  }
-
-  logout() {
-    this.setToken(null);
-  }
+  getAuthHeader() { return this.token ? { Authorization: `UserToken ${this.token}` } : {}; }
+  logout() { this.setToken(null); }
 
   // ---------- public API methods ----------
   async register({ email, username, password, name }) {
@@ -122,16 +111,13 @@ export class AuthClient {
 }
 
 // ---------- helpers ----------
-async function safeJson(resp) {
-  try { return await resp.json(); } catch { return null; }
-}
+async function safeJson(resp) { try { return await resp.json(); } catch { return null; } }
 
 function toError(resp, json, fallback) {
-  const err = new AuthError(
+  return new AuthError(
     json?.message || fallback || 'Request failed',
     resp.status,
     json?.code || json?.error || 'REQUEST_FAILED',
     json
   );
-  return err;
 }
