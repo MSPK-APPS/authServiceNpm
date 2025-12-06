@@ -34,8 +34,8 @@ export class AuthClient {
 
   // ---------- storage helpers ----------
   _load(key) { if (!this.storage) return null; try { return this.storage.getItem(key); } catch { return null; } }
-  _save(key, val) { if (!this.storage) return; try { this.storage.setItem(key, val); } catch {} }
-  _clear(key) { if (!this.storage) return; try { this.storage.removeItem(key); } catch {} }
+  _save(key, val) { if (!this.storage) return; try { this.storage.setItem(key, val); } catch { } }
+  _clear(key) { if (!this.storage) return; try { this.storage.removeItem(key); } catch { } }
 
   // ---------- internal builders ----------
   _buildUrl(path) {
@@ -92,15 +92,62 @@ export class AuthClient {
     return json;
   }
 
-  async getProfile() {
-    const resp = await this.fetch(this._buildUrl('auth/user/profile'), {
-      method: 'GET',
-      headers: this._headers()
+  async requestPasswordReset({ email }) {
+    const resp = await this.fetch(this._buildUrl('auth/request-password-reset'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ email })
     });
     const json = await safeJson(resp);
-    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Profile failed');
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Password reset request failed');
     return json;
   }
+
+  async changePassword({ currentPassword, newPassword }) {
+    const resp = await this.fetch(this._buildUrl('auth/change-password'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Change password failed');
+    return json;
+  }
+
+  async resendVerificationEmail({ email, purpose }) {
+    // purpose: 'New Account' | 'Password change' | 'Profile Edit'
+    const resp = await this.fetch(this._buildUrl('auth/resend-verification'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ email, purpose })
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Resend verification failed');
+    return json;
+  }
+
+  async deleteAccount({ email, password }) {
+    const resp = await this.fetch(this._buildUrl('auth/delete-account'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ email, password })
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Delete account failed');
+    return json;
+  }
+
+
+
+  // async getProfile() {
+  //   const resp = await this.fetch(this._buildUrl('user/profile'), {
+  //     method: 'GET',
+  //     headers: this._headers()
+  //   });
+  //   const json = await safeJson(resp);
+  //   if (!resp.ok || json?.success === false) throw toError(resp, json, 'Profile failed');
+  //   return json;
+  // }
 
   // Generic authorized call for extra endpoints
   async authed(path, { method = 'GET', body, headers } = {}) {
