@@ -137,18 +137,6 @@ export class AuthClient {
     return json;
   }
 
-
-
-  // async getProfile() {
-  //   const resp = await this.fetch(this._buildUrl('user/profile'), {
-  //     method: 'GET',
-  //     headers: this._headers()
-  //   });
-  //   const json = await safeJson(resp);
-  //   if (!resp.ok || json?.success === false) throw toError(resp, json, 'Profile failed');
-  //   return json;
-  // }
-
   // Generic authorized call for extra endpoints
   async authed(path, { method = 'GET', body, headers } = {}) {
     const resp = await this.fetch(this._buildUrl(path), {
