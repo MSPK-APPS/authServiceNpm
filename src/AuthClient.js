@@ -147,11 +147,11 @@ export class AuthClient {
     return json;
   }
 
-  async changePassword({ currentPassword, newPassword }) {
+  async changePassword({ email }) {
     const resp = await this.fetch(this._buildUrl('auth/change-password'), {
       method: 'POST',
       headers: this._headers(),
-      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+      body: JSON.stringify({ email })
     });
     const json = await safeJson(resp);
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Change password failed');
