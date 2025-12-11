@@ -13,10 +13,10 @@ export class AuthClient {
     baseUrl = 'https://cpanel.backend.mspkapps.in/api/v1',
     storage,
     fetch: fetchFn,
-    keyInPath = true, // default: use headers, not key in URL
+    keyInPath = true,
   } = {}) {
     if (!apiKey) throw new Error('apiKey is required');
-    if (!apiSecret) throw new Error('apiSecret is required'); // do not expose in browsers for prod
+    if (!apiSecret) throw new Error('apiSecret is required');
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -24,7 +24,6 @@ export class AuthClient {
 
     const f = fetchFn || (typeof window !== 'undefined' ? window.fetch : (typeof fetch !== 'undefined' ? fetch : null));
     if (!f) throw new Error('No fetch available. Pass { fetch } or run on Node 18+/browsers.');
-    // Bind to avoid “Illegal invocation”
     this.fetch = (...args) => f(...args);
 
     this.storage = storage ?? (typeof window !== 'undefined' ? window.localStorage : null);
@@ -92,6 +91,51 @@ export class AuthClient {
     return json;
   }
 
+  /**
+   * Google Sign-In authentication
+   * @param {Object} params - Google authentication parameters
+   * @param {string} [params.id_token] - Google ID token from credential response
+   * @param {string} [params.access_token] - Google access token (alternative to id_token)
+   * @returns {Promise<Object>} Authentication response with user data and token
+   * @example
+   * // With Google Sign-In button (React)
+   * import { GoogleLogin } from '@react-oauth/google';
+   * 
+   * const handleSuccess = async (credentialResponse) => {
+   *   const result = await auth.googleAuth({
+   *     id_token: credentialResponse.credential
+   *   });
+   *   console.log('User:', result.data.user);
+   *   console.log('Is new user:', result.data.is_new_user);
+   * };
+   * 
+   * <GoogleLogin onSuccess={handleSuccess} />
+   */
+  async googleAuth({ id_token, access_token }) {
+    if (!id_token && !access_token) {
+      throw new AuthError(
+        'Either id_token or access_token is required for Google authentication',
+        400,
+        'MISSING_TOKEN',
+        null
+      );
+    }
+
+    const resp = await this.fetch(this._buildUrl('auth/google'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ id_token, access_token })
+    });
+
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Google authentication failed');
+    
+    const token = json?.data?.user_token;
+    if (token) this.setToken(token);
+    
+    return json;
+  }
+
   async requestPasswordReset({ email }) {
     const resp = await this.fetch(this._buildUrl('auth/request-password-reset'), {
       method: 'POST',
@@ -115,7 +159,6 @@ export class AuthClient {
   }
 
   async resendVerificationEmail({ email, purpose }) {
-    // purpose: 'New Account' | 'Password change' | 'Profile Edit'
     const resp = await this.fetch(this._buildUrl('auth/resend-verification'), {
       method: 'POST',
       headers: this._headers(),
@@ -137,7 +180,26 @@ export class AuthClient {
     return json;
   }
 
-  // Generic authorized call for extra endpoints
+  /**
+   * Get current user profile (requires authentication)
+   * @returns {Promise<Object>} User profile data
+   */
+  async getProfile() {
+    const resp = await this.fetch(this._buildUrl('user/profile'), {
+      method: 'GET',
+      headers: this._headers()
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get profile failed');
+    return json;
+  }
+
+  /**
+   * Generic authorized call for custom endpoints
+   * @param {string} path - API endpoint path
+   * @param {Object} options - Request options
+   * @returns {Promise<Object>} Response data
+   */
   async authed(path, { method = 'GET', body, headers } = {}) {
     const resp = await this.fetch(this._buildUrl(path), {
       method,
