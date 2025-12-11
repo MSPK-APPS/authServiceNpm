@@ -179,7 +179,17 @@ export class AuthClient {
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Delete account failed');
     return json;
   }
-
+  
+  async sendGoogleUserSetPasswordEmail({ email }) {
+    const resp = await this.fetch(this._buildUrl('auth/set-password-google-user'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ email })
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Send Google user set password email failed');
+    return json;
+  }
   /**
    * Get current user profile (requires authentication)
    * @returns {Promise<Object>} User profile data
