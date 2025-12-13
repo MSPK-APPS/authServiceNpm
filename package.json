@@ -25,12 +25,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/mspk5196/authServiceNpm.git"
+    "url": "https://github.com/MSPK-APPS/authServiceNpm.git"
   },
   "bugs": {
-    "url": "https://github.com/mspk5196/authServiceNpm/issues"
+    "url": "https://github.com/MSPK-APPS/authServiceNpm.git/issues"
   },
-  "homepage": "https://github.com/mspk5196/authServiceNpm#readme",
+  "homepage": "https://github.com/MSPK-APPS/authServiceNpm.git#readme",
   "engines": {
     "node": ">=18"
   }
