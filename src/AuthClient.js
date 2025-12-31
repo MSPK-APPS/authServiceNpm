@@ -14,6 +14,7 @@ export class AuthClient {
     storage,
     fetch: fetchFn,
     keyInPath = true,
+    googleClientId = null, // new option
   } = {}) {
     if (!apiKey) throw new Error('apiKey is required');
     if (!apiSecret) throw new Error('apiSecret is required');
@@ -21,6 +22,7 @@ export class AuthClient {
     this.apiSecret = apiSecret;
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.keyInPath = !!keyInPath;
+    this.googleClientId = googleClientId || null; // store it
 
     const f = fetchFn || (typeof window !== 'undefined' ? window.fetch : (typeof fetch !== 'undefined' ? fetch : null));
     if (!f) throw new Error('No fetch available. Pass { fetch } or run on Node 18+/browsers.');
@@ -49,6 +51,7 @@ export class AuthClient {
       'Content-Type': 'application/json',
       'X-API-Key': this.apiKey,
       'X-API-Secret': this.apiSecret,
+      ...(this.googleClientId ? { 'X-Google-Client-Id': this.googleClientId } : {}),
       ...(this.token ? { Authorization: `UserToken ${this.token}` } : {}),
       ...extra
     };
@@ -91,26 +94,6 @@ export class AuthClient {
     return json;
   }
 
-  /**
-   * Google Sign-In authentication
-   * @param {Object} params - Google authentication parameters
-   * @param {string} [params.id_token] - Google ID token from credential response
-   * @param {string} [params.access_token] - Google access token (alternative to id_token)
-   * @returns {Promise<Object>} Authentication response with user data and token
-   * @example
-   * // With Google Sign-In button (React)
-   * import { GoogleLogin } from '@react-oauth/google';
-   * 
-   * const handleSuccess = async (credentialResponse) => {
-   *   const result = await auth.googleAuth({
-   *     id_token: credentialResponse.credential
-   *   });
-   *   console.log('User:', result.data.user);
-   *   console.log('Is new user:', result.data.is_new_user);
-   * };
-   * 
-   * <GoogleLogin onSuccess={handleSuccess} />
-   */
   async googleAuth({ id_token, access_token }) {
     if (!id_token && !access_token) {
       throw new AuthError(
@@ -121,10 +104,14 @@ export class AuthClient {
       );
     }
 
+    // include googleClientId in body too (helpful if backend needs it)
+    const body = { id_token, access_token };
+    if (this.googleClientId) body.google_client_id = this.googleClientId;
+
     const resp = await this.fetch(this._buildUrl('auth/google'), {
       method: 'POST',
       headers: this._headers(),
-      body: JSON.stringify({ id_token, access_token })
+      body: JSON.stringify(body)
     });
 
     const json = await safeJson(resp);
@@ -181,19 +168,16 @@ export class AuthClient {
   }
 
   async getEditableProfileFields() {
-    // either call profile (which contains editable flags) or a dedicated endpoint
     const resp = await this.fetch(this._buildUrl('user/profile'), {
       method: 'GET',
       headers: this._headers()
     });
     const json = await safeJson(resp);
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get profile failed');
-    // return both profile and editable metadata
     return json;
   }
 
   async updateProfile(updates = {}) {
-    // updates can contain { name, username, email, extra: { fieldName: value } }
     const resp = await this.fetch(this._buildUrl('user/profile'), {
       method: 'PATCH',
       headers: this._headers(),
@@ -201,7 +185,6 @@ export class AuthClient {
     });
     const json = await safeJson(resp);
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Update profile failed');
-    // If server indicates verification required, return that info to UI
     return json;
   }
 
@@ -215,10 +198,7 @@ export class AuthClient {
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Send Google user set password email failed');
     return json;
   }
-  /**
-   * Get current user profile (requires authentication)
-   * @returns {Promise<Object>} User profile data
-   */
+
   async getProfile() {
     const resp = await this.fetch(this._buildUrl('user/profile'), {
       method: 'GET',
@@ -229,12 +209,6 @@ export class AuthClient {
     return json;
   }
 
-  /**
-   * Generic authorized call for custom endpoints
-   * @param {string} path - API endpoint path
-   * @param {Object} options - Request options
-   * @returns {Promise<Object>} Response data
-   */
   async authed(path, { method = 'GET', body, headers } = {}) {
     const resp = await this.fetch(this._buildUrl(path), {
       method,
