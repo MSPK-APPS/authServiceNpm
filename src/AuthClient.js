@@ -67,11 +67,11 @@ export class AuthClient {
   logout() { this.setToken(null); }
 
   // ---------- public API methods ----------
-  async register({ email, username, password, name }) {
+  async register({ email, username, password, name, extra = {} }) {
     const resp = await this.fetch(this._buildUrl('auth/register'), {
       method: 'POST',
       headers: this._headers(),
-      body: JSON.stringify({ email, username, password, name })
+      body: JSON.stringify({ email, username, password, name, ...extra })
     });
     const json = await safeJson(resp);
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Register failed');
