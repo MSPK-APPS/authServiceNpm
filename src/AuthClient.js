@@ -129,10 +129,10 @@ export class AuthClient {
 
     const json = await safeJson(resp);
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Google authentication failed');
-    
+
     const token = json?.data?.user_token;
     if (token) this.setToken(token);
-    
+
     return json;
   }
 
@@ -179,7 +179,32 @@ export class AuthClient {
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Delete account failed');
     return json;
   }
-  
+
+  async getEditableProfileFields() {
+    // either call profile (which contains editable flags) or a dedicated endpoint
+    const resp = await this.fetch(this._buildUrl('user/profile'), {
+      method: 'GET',
+      headers: this._headers()
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get profile failed');
+    // return both profile and editable metadata
+    return json;
+  }
+
+  async updateProfile(updates = {}) {
+    // updates can contain { name, username, email, extra: { fieldName: value } }
+    const resp = await this.fetch(this._buildUrl('user/profile'), {
+      method: 'PATCH',
+      headers: this._headers(),
+      body: JSON.stringify(updates)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Update profile failed');
+    // If server indicates verification required, return that info to UI
+    return json;
+  }
+
   async sendGoogleUserSetPasswordEmail({ email }) {
     const resp = await this.fetch(this._buildUrl('auth/set-password-google-user'), {
       method: 'POST',
