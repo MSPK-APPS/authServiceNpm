@@ -232,3 +232,83 @@ function toError(resp, json, fallback) {
     json
   );
 }
+
+
+// ---- Singleton-style convenience API ----
+
+// Internal holder
+const _singleton = { client: null };
+
+function ensureClient() {
+  if (!_singleton.client) {
+    throw new Error(
+      'AuthClient not initialized. Call authclient.init({ apiKey, apiSecret, ... }) first.'
+    );
+  }
+  return _singleton.client;
+}
+
+// Initialize once in your backend (typically at startup)
+function init({
+  apiKey = process.env.MSPK_AUTH_API_KEY,
+  apiSecret = process.env.MSPK_AUTH_API_SECRET,
+  googleClientId = process.env.GOOGLE_CLIENT_ID,
+  baseUrl,      // optional override
+  storage,      // usually omit on backend
+  fetch: fetchFn,
+  keyInPath,
+} = {}) {
+  _singleton.client = new AuthClient({
+    apiKey,
+    apiSecret,
+    googleClientId,
+    baseUrl,
+    storage,
+    fetch: fetchFn,
+    keyInPath,
+  });
+  return _singleton.client;
+}
+
+// Thin wrappers delegating to the singleton
+const authclient = {
+  init,
+  get client() {
+    return ensureClient();
+  },
+
+  // auth shortcuts
+  login(creds) {
+    return ensureClient().login(creds);
+  },
+  register(data) {
+    return ensureClient().register(data);
+  },
+  googleAuth(tokens) {
+    return ensureClient().googleAuth(tokens);
+  },
+
+  // profile helpers
+  getProfile() {
+    return ensureClient().getProfile();
+  },
+  updateProfile(updates) {
+    return ensureClient().updateProfile(updates);
+  },
+
+  // generic authed call
+  authed(path, opts) {
+    return ensureClient().authed(path, opts);
+  },
+
+  // token helpers
+  setToken(token) {
+    return ensureClient().setToken(token);
+  },
+  logout() {
+    return ensureClient().logout();
+  },
+};
+
+export { authclient, init };   // named exports if someone prefers them
+export default authclient;     // default export for your desired DX
