@@ -94,8 +94,8 @@ export class AuthClient {
     return json;
   }
 
-  async googleAuth({ id_token, access_token }) {
-    if (!id_token && !access_token) {
+  async googleAuth({ id_token }) {
+    if (!id_token) {
       throw new AuthError(
         'Either id_token or access_token is required for Google authentication',
         400,
@@ -105,7 +105,7 @@ export class AuthClient {
     }
 
     // include googleClientId in body too (helpful if backend needs it)
-    const body = { id_token, access_token };
+    const body = { id_token };
     if (this.googleClientId) body.google_client_id = this.googleClientId;
 
     const resp = await this.fetch(this._buildUrl('auth/google'), {
