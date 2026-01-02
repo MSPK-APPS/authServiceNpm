@@ -209,6 +209,19 @@ export class AuthClient {
     return json;
   }
 
+  async verifyToken(accessToken) {
+    const resp = await this.fetch(this._buildUrl('auth/verify-token'), {
+      method: 'POST',
+      headers: {
+        ...this._headers(),
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Verify token failed');
+    return json?.data ?? json;
+  }
+
   async authed(path, { method = 'GET', body, headers } = {}) {
     const resp = await this.fetch(this._buildUrl(path), {
       method,
@@ -307,6 +320,9 @@ const authclient = {
   },
   logout() {
     return ensureClient().logout();
+  },
+  verifyToken(accessToken) {
+    return ensureClient().verifyToken(accessToken);
   },
 };
 
