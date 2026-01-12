@@ -10,7 +10,7 @@ export class AuthClient {
   constructor({
     apiKey,
     apiSecret,
-    baseUrl = 'https://cpanel.backend.mspkapps.in/api/v1',
+    baseUrl = 'https://cpanel-backend.mspkapps.in/api/v1',
     storage,
     fetch: fetchFn,
     keyInPath = true,
