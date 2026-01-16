@@ -14,7 +14,7 @@ export class AuthClient {
     storage,
     fetch: fetchFn,
     keyInPath = true,
-    googleClientId = null, // new option
+    googleClientId = null,
   } = {}) {
     if (!apiKey) throw new Error('apiKey is required');
     if (!apiSecret) throw new Error('apiSecret is required');
@@ -22,7 +22,7 @@ export class AuthClient {
     this.apiSecret = apiSecret;
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.keyInPath = !!keyInPath;
-    this.googleClientId = googleClientId || null; // store it
+    this.googleClientId = googleClientId || null;
 
     const f = fetchFn || (typeof window !== 'undefined' ? window.fetch : (typeof fetch !== 'undefined' ? fetch : null));
     if (!f) throw new Error('No fetch available. Pass { fetch } or run on Node 18+/browsers.');
@@ -104,7 +104,6 @@ export class AuthClient {
       );
     }
 
-    // include googleClientId in body too (helpful if backend needs it)
     const body = { id_token };
     if (this.googleClientId) body.google_client_id = this.googleClientId;
 
@@ -234,6 +233,8 @@ export class AuthClient {
   }
 
   // ---------- Developer Data APIs ----------
+  // Note: developer_id is automatically extracted from API key & secret on the backend
+  
   async getDeveloperGroups() {
     const resp = await this.fetch(this._buildUrl('developer/groups'), {
       method: 'GET',
@@ -244,10 +245,33 @@ export class AuthClient {
     return json;
   }
 
-  async getDeveloperApps(groupId = null) {
-    const url = groupId 
-      ? this._buildUrl(`developer/apps?group_id=${encodeURIComponent(groupId)}`)
-      : this._buildUrl('developer/apps');
+  /**
+   * Get developer's apps
+   * @param {number|string|null} groupId - Optional. Filter by group ID, pass null/'null' for apps without groups, omit for all apps
+   * @returns {Promise} API response with app data
+   * @example
+   * // Get all apps (with and without groups)
+   * await client.getDeveloperApps();
+   * 
+   * // Get apps in specific group
+   * await client.getDeveloperApps(123);
+   * 
+   * // Get only apps NOT in any group
+   * await client.getDeveloperApps(null);
+   */
+  async getDeveloperApps(groupId = undefined) {
+    let url = this._buildUrl('developer/apps');
+    
+    if (groupId !== undefined) {
+      if (groupId === null || groupId === 'null') {
+        // Get apps without groups
+        url += '?group_id=null';
+      } else {
+        // Get apps for specific group
+        url += `?group_id=${encodeURIComponent(groupId)}`;
+      }
+    }
+    
     const resp = await this.fetch(url, {
       method: 'GET',
       headers: this._headers()
@@ -296,7 +320,6 @@ function toError(resp, json, fallback) {
 
 // ---- Singleton-style convenience API ----
 
-// Internal holder
 const _singleton = { client: null };
 
 function ensureClient() {
@@ -308,13 +331,12 @@ function ensureClient() {
   return _singleton.client;
 }
 
-// Initialize once in your backend (typically at startup)
 function init({
   apiKey = process.env.MSPK_AUTH_API_KEY,
   apiSecret = process.env.MSPK_AUTH_API_SECRET,
   googleClientId = process.env.GOOGLE_CLIENT_ID,
-  baseUrl,      // optional override
-  storage,      // usually omit on backend
+  baseUrl,
+  storage,
   fetch: fetchFn,
   keyInPath,
 } = {}) {
@@ -330,7 +352,6 @@ function init({
   return _singleton.client;
 }
 
-// Thin wrappers delegating to the singleton
 const authclient = {
   init,
   get client() {
@@ -372,11 +393,11 @@ const authclient = {
     return ensureClient().verifyToken(accessToken);
   },
 
-  // developer data APIs
+  // developer data APIs (dev_id extracted automatically from API credentials)
   getDeveloperGroups() {
     return ensureClient().getDeveloperGroups();
   },
-  getDeveloperApps(groupId = null) {
+  getDeveloperApps(groupId = undefined) {
     return ensureClient().getDeveloperApps(groupId);
   },
   getAppUsers({ appId, page, limit }) {
@@ -387,5 +408,5 @@ const authclient = {
   },
 };
 
-export { authclient, init };   // named exports if someone prefers them
-export default authclient;     // default export for your desired DX
+export { authclient, init };
+export default authclient;
