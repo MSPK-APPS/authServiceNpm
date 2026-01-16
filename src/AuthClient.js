@@ -232,6 +232,53 @@ export class AuthClient {
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Request failed');
     return json;
   }
+
+  // ---------- Developer Data APIs ----------
+  async getDeveloperGroups() {
+    const resp = await this.fetch(this._buildUrl('developer/groups'), {
+      method: 'GET',
+      headers: this._headers()
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get developer groups failed');
+    return json;
+  }
+
+  async getDeveloperApps(groupId = null) {
+    const url = groupId 
+      ? this._buildUrl(`developer/apps?group_id=${encodeURIComponent(groupId)}`)
+      : this._buildUrl('developer/apps');
+    const resp = await this.fetch(url, {
+      method: 'GET',
+      headers: this._headers()
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get developer apps failed');
+    return json;
+  }
+
+  async getAppUsers({ appId, page = 1, limit = 50 }) {
+    if (!appId) throw new AuthError('appId is required', 400, 'MISSING_APP_ID', null);
+    const url = this._buildUrl(`developer/users?app_id=${encodeURIComponent(appId)}&page=${page}&limit=${limit}`);
+    const resp = await this.fetch(url, {
+      method: 'GET',
+      headers: this._headers()
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get app users failed');
+    return json;
+  }
+
+  async getUserData(userId) {
+    if (!userId) throw new AuthError('userId is required', 400, 'MISSING_USER_ID', null);
+    const resp = await this.fetch(this._buildUrl(`developer/user/${encodeURIComponent(userId)}`), {
+      method: 'GET',
+      headers: this._headers()
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get user data failed');
+    return json;
+  }
 }
 
 // ---------- helpers ----------
@@ -323,6 +370,20 @@ const authclient = {
   },
   verifyToken(accessToken) {
     return ensureClient().verifyToken(accessToken);
+  },
+
+  // developer data APIs
+  getDeveloperGroups() {
+    return ensureClient().getDeveloperGroups();
+  },
+  getDeveloperApps(groupId = null) {
+    return ensureClient().getDeveloperApps(groupId);
+  },
+  getAppUsers({ appId, page, limit }) {
+    return ensureClient().getAppUsers({ appId, page, limit });
+  },
+  getUserData(userId) {
+    return ensureClient().getUserData(userId);
   },
 };
 
