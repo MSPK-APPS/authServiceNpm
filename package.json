@@ -1,6 +1,6 @@
 {
   "name": "@mspkapps/auth-client",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Lightweight client for Your Auth Service",
   "type": "module",
   "main": "src/index.js",
