@@ -232,7 +232,160 @@ router.patch('/profile', requireAuth, async (req, res) => {
 export default router;
 ```
 
-### 1.6 Wire Up Routes in Backend App
+### 1.6 Developer Data Routes (Backend)
+
+The AuthClient provides APIs to fetch developer-specific data (groups, apps, users). The **developer ID is automatically extracted** from the API key & secret, so you don't need to pass it explicitly.
+
+Example `src/routes/developerRoutes.js`:
+
+```javascript
+import express from 'express';
+import authclient from '../auth/authClient.js';
+import { AuthError } from '@mspkapps/auth-client';
+
+const router = express.Router();
+
+function handleError(res, err, fallback = 'Request failed') {
+  if (err instanceof AuthError) {
+    return res.status(err.status || 400).json({
+      success: false,
+      message: err.message || fallback,
+      code: err.code || 'REQUEST_FAILED',
+      data: err.response?.data ?? null,
+    });
+  }
+  console.error('Unexpected error:', err);
+  return res.status(500).json({
+    success: false,
+    message: fallback,
+    code: 'INTERNAL_ERROR',
+  });
+}
+
+// GET /api/developer/groups
+// Fetch all groups belonging to the authenticated developer
+router.get('/groups', async (req, res) => {
+  try {
+    const resp = await authclient.getDeveloperGroups();
+    return res.json(resp);
+  } catch (err) {
+    return handleError(res, err, 'Failed to fetch groups');
+  }
+});
+
+// GET /api/developer/apps?group_id=123
+// Fetch developer's apps
+// - No query params: returns ALL apps (with and without groups)
+// - ?group_id=123: returns apps in specific group
+// - ?group_id=null: returns only apps NOT in any group
+router.get('/apps', async (req, res) => {
+  try {
+    const { group_id } = req.query;
+    
+    let groupId;
+    if (group_id === 'null' || group_id === '') {
+      groupId = null; // Apps without groups
+    } else if (group_id !== undefined) {
+      groupId = group_id; // Specific group
+    } // else undefined = all apps
+    
+    const resp = await authclient.getDeveloperApps(groupId);
+    return res.json(resp);
+  } catch (err) {
+    return handleError(res, err, 'Failed to fetch apps');
+  }
+});
+
+// GET /api/developer/users?app_id=123&page=1&limit=50
+// Fetch users for a specific app (with pagination)
+// Returns all user data EXCEPT password, including extra fields
+router.get('/users', async (req, res) => {
+  try {
+    const { app_id, page = 1, limit = 50 } = req.query;
+    
+    if (!app_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'app_id query parameter is required'
+      });
+    }
+    
+    const resp = await authclient.getAppUsers({
+      appId: app_id,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+    return res.json(resp);
+  } catch (err) {
+    return handleError(res, err, 'Failed to fetch users');
+  }
+});
+
+// GET /api/developer/user/:user_id
+// Fetch specific user data by user ID
+// Returns complete user data (no password) including extra fields
+router.get('/user/:user_id', async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const resp = await authclient.getUserData(user_id);
+    return res.json(resp);
+  } catch (err) {
+    return handleError(res, err, 'Failed to fetch user data');
+  }
+});
+
+export default router;
+```
+
+**Usage Examples:**
+
+```javascript
+// Get all groups
+GET /api/developer/groups
+Response: { success: true, data: [...groups] }
+
+// Get all apps (both in groups and standalone)
+GET /api/developer/apps
+Response: { success: true, data: [...apps] }
+
+// Get apps in a specific group
+GET /api/developer/apps?group_id=123
+Response: { success: true, data: [...apps] }
+
+// Get only apps NOT in any group
+GET /api/developer/apps?group_id=null
+Response: { success: true, data: [...apps] }
+
+// Get users for an app (paginated)
+GET /api/developer/users?app_id=456&page=1&limit=50
+Response: {
+  success: true,
+  data: [...users],
+  pagination: {
+    currentPage: 1,
+    totalPages: 5,
+    totalUsers: 234,
+    limit: 50
+  }
+}
+
+// Get specific user
+GET /api/developer/user/789
+Response: {
+  success: true,
+  data: {
+    id: 789,
+    username: "john_doe",
+    email: "john@example.com",
+    name: "John Doe",
+    extra: { country: "USA", age: 30 },
+    is_email_verified: true,
+    // ... no password field
+  }
+}
+```
+
+### 1.7 Wire Up Routes in Backend App
 
 In your backend `src/app.js`:
 
@@ -241,6 +394,7 @@ import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import developerRoutes from './routes/developerRoutes.js'; // NEW
 
 const app = express();
 
@@ -249,6 +403,7 @@ app.use(express.json());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/developer', developerRoutes); // NEW
 
 export default app;
 ```
@@ -318,6 +473,61 @@ export async function apiGetProfile(accessToken) {
   const json = await resp.json();
   if (!resp.ok || json?.success === false) {
     throw new Error(json?.message || 'Get profile failed');
+  }
+  return json;
+}
+
+// Developer Data APIs (if building a developer dashboard)
+export async function apiGetGroups() {
+  const resp = await fetch(`${API_BASE_URL}/api/developer/groups`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await resp.json();
+  if (!resp.ok || json?.success === false) {
+    throw new Error(json?.message || 'Get groups failed');
+  }
+  return json;
+}
+
+export async function apiGetApps(groupId) {
+  const url = groupId !== undefined
+    ? `${API_BASE_URL}/api/developer/apps?group_id=${groupId}`
+    : `${API_BASE_URL}/api/developer/apps`;
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await resp.json();
+  if (!resp.ok || json?.success === false) {
+    throw new Error(json?.message || 'Get apps failed');
+  }
+  return json;
+}
+
+export async function apiGetAppUsers(appId, page = 1, limit = 50) {
+  const resp = await fetch(
+    `${API_BASE_URL}/api/developer/users?app_id=${appId}&page=${page}&limit=${limit}`,
+    {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+  const json = await resp.json();
+  if (!resp.ok || json?.success === false) {
+    throw new Error(json?.message || 'Get users failed');
+  }
+  return json;
+}
+
+export async function apiGetUserData(userId) {
+  const resp = await fetch(`${API_BASE_URL}/api/developer/user/${userId}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await resp.json();
+  if (!resp.ok || json?.success === false) {
+    throw new Error(json?.message || 'Get user data failed');
   }
   return json;
 }
@@ -490,6 +700,96 @@ function LoginPage() {
 
 The Google ID token is sent to `/api/auth/google` on your backend, which then calls `authclient.googleAuth`.
 
+### 2.5 Example Developer Dashboard Page (React Vite)
+
+If you're building a developer dashboard that displays groups, apps, and users:
+
+```jsx
+import { useState, useEffect } from 'react';
+import { apiGetGroups, apiGetApps, apiGetAppUsers } from '../services/authApi';
+
+function DeveloperDashboard() {
+  const [groups, setGroups] = useState([]);
+  const [apps, setApps] = useState([]);
+  const [selectedApp, setSelectedApp] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [groupsResp, appsResp] = await Promise.all([
+        apiGetGroups(),
+        apiGetApps() // Get all apps
+      ]);
+      setGroups(groupsResp.data);
+      setApps(appsResp.data);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadUsers = async (appId) => {
+    try {
+      const resp = await apiGetAppUsers(appId, 1, 50);
+      setUsers(resp.data);
+      setSelectedApp(appId);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    }
+  };
+
+  if (loading) return <div>Loading...</div>;
+
+  return (
+    <div>
+      <h1>Developer Dashboard</h1>
+      
+      <section>
+        <h2>Groups ({groups.length})</h2>
+        <ul>
+          {groups.map(group => (
+            <li key={group.id}>{group.name}</li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <h2>Apps ({apps.length})</h2>
+        <ul>
+          {apps.map(app => (
+            <li key={app.id}>
+              {app.app_name} {app.group_name && `(Group: ${app.group_name})`}
+              <button onClick={() => loadUsers(app.id)}>View Users</button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {selectedApp && (
+        <section>
+          <h2>Users for App {selectedApp}</h2>
+          <ul>
+            {users.map(user => (
+              <li key={user.id}>
+                {user.email} - {user.name}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+export default DeveloperDashboard;
+```
+
 ---
 
 ## 3. React Native CLI – Call Your Backend
@@ -524,6 +824,18 @@ export const apiRegister = (payload) => request('/api/auth/register', { method: 
 export const apiGoogleLogin = (idToken) =>
   request('/api/auth/google', { method: 'POST', body: { id_token: idToken } });
 export const apiGetProfile = (token) => request('/api/user/profile', { method: 'GET', token });
+
+// Developer Data APIs
+export const apiGetGroups = () => request('/api/developer/groups', { method: 'GET' });
+export const apiGetApps = (groupId) => {
+  const path = groupId !== undefined 
+    ? `/api/developer/apps?group_id=${groupId}` 
+    : '/api/developer/apps';
+  return request(path, { method: 'GET' });
+};
+export const apiGetAppUsers = (appId, page = 1, limit = 50) =>
+  request(`/api/developer/users?app_id=${appId}&page=${page}&limit=${limit}`, { method: 'GET' });
+export const apiGetUserData = (userId) => request(`/api/developer/user/${userId}`, { method: 'GET' });
 ```
 
 ### 3.2 Auth Context (React Native)
@@ -655,13 +967,51 @@ function LoginScreen() {
 
 - `@mspkapps/auth-client` is **backend-only**.
 - API key, secret, and `googleClientId` live **only in backend env vars**.
-- Frontend talks to backend over HTTPS (`/api/auth/*`, `/api/user/*`).
+- Frontend talks to backend over HTTPS (`/api/auth/*`, `/api/user/*`, `/api/developer/*`).
 - Frontend stores only **user-level access token** (e.g. in `localStorage` / `AsyncStorage`).
 - Never expose API key/secret in web or mobile bundles.
+- **Developer ID is automatically extracted** from API key/secret by the backend - no need to pass it explicitly.
 
 ---
 
-## 5. Troubleshooting
+## 5. API Reference
+
+### 5.1 Authentication APIs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `authclient.register()` | `POST /api/auth/register` | Register new user |
+| `authclient.login()` | `POST /api/auth/login` | Login user |
+| `authclient.googleAuth()` | `POST /api/auth/google` | Google OAuth login |
+| `authclient.verifyToken()` | `POST /api/auth/verify-token` | Verify access token |
+
+### 5.2 User Profile APIs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `authclient.getProfile()` | `GET /api/user/profile` | Get user profile |
+| `authclient.updateProfile()` | `PATCH /api/user/profile` | Update user profile |
+
+### 5.3 Developer Data APIs (NEW)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `authclient.getDeveloperGroups()` | `GET /api/developer/groups` | Get all groups for the authenticated developer |
+| `authclient.getDeveloperApps()` | `GET /api/developer/apps` | Get all apps (with and without groups) |
+| `authclient.getDeveloperApps(123)` | `GET /api/developer/apps?group_id=123` | Get apps in specific group |
+| `authclient.getDeveloperApps(null)` | `GET /api/developer/apps?group_id=null` | Get apps NOT in any group |
+| `authclient.getAppUsers({ appId, page, limit })` | `GET /api/developer/users?app_id=X&page=Y&limit=Z` | Get users for specific app (paginated) |
+| `authclient.getUserData(userId)` | `GET /api/developer/user/:user_id` | Get specific user data |
+
+**Notes:**
+- All user data responses **exclude the password field** for security
+- User data includes all custom `extra` fields configured for the app
+- `developer_id` is **automatically extracted** from API key & secret - you never pass it manually
+- Pagination is supported for user lists with `page` and `limit` parameters
+
+---
+
+## 6. Troubleshooting
 
 ### Frontend gets 4xx/5xx from backend
 
@@ -673,11 +1023,24 @@ function LoginScreen() {
 - Ensure `GOOGLE_CLIENT_ID` in backend matches the client ID used on the frontend.
 - Check that the frontend sends `credential` / `id_token` to `/api/auth/google` correctly.
 
+### Developer data APIs return 403/404
+
+- Verify that the API key & secret in your backend env vars are correct.
+- The developer ID is extracted automatically from these credentials.
+- Ensure you're querying data that belongs to the authenticated developer.
+
+### App users query returns empty results
+
+- Verify the `app_id` belongs to the authenticated developer.
+- Check that the app actually has registered users.
+
 ---
 
-## 6. Summary
+## 7. Summary
 
 - Install and initialize `@mspkapps/auth-client` **only in your backend**.
 - Implement clean REST endpoints in your backend that call `authclient` methods.
 - React and React Native frontends call those endpoints with plain HTTP (fetch/axios).
 - This keeps API keys safe and maintains a clean separation between frontend and backend.
+- Use the new **Developer Data APIs** to build dashboards that display groups, apps, and users.
+- Developer ID is **automatically extracted** from API credentials - never passed manually.
