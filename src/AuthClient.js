@@ -15,6 +15,7 @@ export class AuthClient {
     fetch: fetchFn,
     keyInPath = true,
     googleClientId = null,
+    developerId = null, // NEW: for developer-level APIs
   } = {}) {
     if (!apiKey) throw new Error('apiKey is required');
     if (!apiSecret) throw new Error('apiSecret is required');
@@ -23,6 +24,7 @@ export class AuthClient {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.keyInPath = !!keyInPath;
     this.googleClientId = googleClientId || null;
+    this.developerId = developerId || null; // Store developer ID
 
     const f = fetchFn || (typeof window !== 'undefined' ? window.fetch : (typeof fetch !== 'undefined' ? fetch : null));
     if (!f) throw new Error('No fetch available. Pass { fetch } or run on Node 18+/browsers.');
@@ -52,6 +54,7 @@ export class AuthClient {
       'X-API-Key': this.apiKey,
       'X-API-Secret': this.apiSecret,
       ...(this.googleClientId ? { 'X-Google-Client-Id': this.googleClientId } : {}),
+      ...(this.developerId ? { 'X-Developer-Id': this.developerId } : {}),
       ...(this.token ? { Authorization: `UserToken ${this.token}` } : {}),
       ...extra
     };
@@ -61,6 +64,10 @@ export class AuthClient {
     this.token = token || null;
     if (token) this._save(this.tokenKey, token);
     else this._clear(this.tokenKey);
+  }
+
+  setDeveloperId(developerId) {
+    this.developerId = developerId || null;
   }
 
   getAuthHeader() { return this.token ? { Authorization: `UserToken ${this.token}` } : {}; }
@@ -233,10 +240,13 @@ export class AuthClient {
   }
 
   // ---------- Developer Data APIs ----------
-  // Note: developer_id is automatically extracted from API key & secret on the backend
+  // Note: Requires developerId to be set via constructor or setDeveloperId()
   
   async getDeveloperGroups() {
-    const resp = await this.fetch(this._buildUrl('developer/groups'), {
+    if (!this.developerId) {
+      throw new AuthError('Developer ID is required. Set it via constructor or setDeveloperId()', 400, 'MISSING_DEVELOPER_ID', null);
+    }
+    const resp = await this.fetch(`${this.baseUrl}/developer/groups`, {
       method: 'GET',
       headers: this._headers()
     });
@@ -260,14 +270,16 @@ export class AuthClient {
    * await client.getDeveloperApps(null);
    */
   async getDeveloperApps(groupId = undefined) {
-    let url = this._buildUrl('developer/apps');
+    if (!this.developerId) {
+      throw new AuthError('Developer ID is required. Set it via constructor or setDeveloperId()', 400, 'MISSING_DEVELOPER_ID', null);
+    }
+    
+    let url = `${this.baseUrl}/developer/apps`;
     
     if (groupId !== undefined) {
       if (groupId === null || groupId === 'null') {
-        // Get apps without groups
         url += '?group_id=null';
       } else {
-        // Get apps for specific group
         url += `?group_id=${encodeURIComponent(groupId)}`;
       }
     }
@@ -282,8 +294,11 @@ export class AuthClient {
   }
 
   async getAppUsers({ appId, page = 1, limit = 50 }) {
+    if (!this.developerId) {
+      throw new AuthError('Developer ID is required. Set it via constructor or setDeveloperId()', 400, 'MISSING_DEVELOPER_ID', null);
+    }
     if (!appId) throw new AuthError('appId is required', 400, 'MISSING_APP_ID', null);
-    const url = this._buildUrl(`developer/users?app_id=${encodeURIComponent(appId)}&page=${page}&limit=${limit}`);
+    const url = `${this.baseUrl}/developer/users?app_id=${encodeURIComponent(appId)}&page=${page}&limit=${limit}`;
     const resp = await this.fetch(url, {
       method: 'GET',
       headers: this._headers()
@@ -294,8 +309,11 @@ export class AuthClient {
   }
 
   async getUserData(userId) {
+    if (!this.developerId) {
+      throw new AuthError('Developer ID is required. Set it via constructor or setDeveloperId()', 400, 'MISSING_DEVELOPER_ID', null);
+    }
     if (!userId) throw new AuthError('userId is required', 400, 'MISSING_USER_ID', null);
-    const resp = await this.fetch(this._buildUrl(`developer/user/${encodeURIComponent(userId)}`), {
+    const resp = await this.fetch(`${this.baseUrl}/developer/user/${encodeURIComponent(userId)}`, {
       method: 'GET',
       headers: this._headers()
     });
@@ -335,6 +353,7 @@ function init({
   apiKey = process.env.MSPK_AUTH_API_KEY,
   apiSecret = process.env.MSPK_AUTH_API_SECRET,
   googleClientId = process.env.GOOGLE_CLIENT_ID,
+  developerId = process.env.MSPK_DEVELOPER_ID, // NEW
   baseUrl,
   storage,
   fetch: fetchFn,
@@ -344,6 +363,7 @@ function init({
     apiKey,
     apiSecret,
     googleClientId,
+    developerId,
     baseUrl,
     storage,
     fetch: fetchFn,
@@ -393,7 +413,12 @@ const authclient = {
     return ensureClient().verifyToken(accessToken);
   },
 
-  // developer data APIs (dev_id extracted automatically from API credentials)
+  // developer ID management
+  setDeveloperId(developerId) {
+    return ensureClient().setDeveloperId(developerId);
+  },
+
+  // developer data APIs (requires developerId to be set)
   getDeveloperGroups() {
     return ensureClient().getDeveloperGroups();
   },
