@@ -334,6 +334,18 @@ router.get('/user/:user_id', async (req, res) => {
   }
 });
 
+// POST /api/developer/send-mail
+// Send a custom email to users via the app's mail quota
+router.post('/send-mail', async (req, res) => {
+  try {
+    const { to, subject, html, fromName } = req.body;
+    const resp = await authclient.sendMail({ to, subject, html, fromName });
+    return res.json(resp);
+  } catch (err) {
+    return handleError(res, err, 'Failed to send mail');
+  }
+});
+
 export default router;
 ```
 
@@ -382,6 +394,21 @@ Response: {
     is_email_verified: true,
     // ... no password field
   }
+}
+
+// Send custom email to users
+POST /api/developer/send-mail
+Body: { 
+  "to": ["user@example.com"], 
+  "subject": "Hello", 
+  "html": "<p>Welcome to our app!</p>",
+  "fromName": "MyApp Team" 
+}
+Response: {
+  success: true,
+  message: "Mail sent successfully",
+  sent_this_month: 42,
+  remaining_quota: 58 // or 'unlimited'
 }
 ```
 
@@ -1002,6 +1029,7 @@ function LoginScreen() {
 | `authclient.getDeveloperApps(null)` | `GET /api/developer/apps?group_id=null` | Get apps NOT in any group |
 | `authclient.getAppUsers({ appId, page, limit })` | `GET /api/developer/users?app_id=X&page=Y&limit=Z` | Get users for specific app (paginated) |
 | `authclient.getUserData(userId)` | `GET /api/developer/user/:user_id` | Get specific user data |
+| `authclient.sendMail({ to, subject, html, fromName })` | `POST /api/developer/send-mail` (Custom Route) | Send custom mail using app quota |
 
 **Notes:**
 - All user data responses **exclude the password field** for security
