@@ -239,6 +239,36 @@ export class AuthClient {
     return json;
   }
 
+  /**
+   * Send a custom email to one or more recipients via the app's mail quota.
+   * Requires API key + secret (handled by server middleware).
+   *
+   * @param {Object} opts
+   * @param {string|string[]} opts.to      - Recipient email(s) — max 10
+   * @param {string}          opts.subject - Email subject
+   * @param {string}          opts.html    - HTML body
+   * @param {string}          [opts.fromName] - Sender display name (defaults to app name)
+   * @returns {Promise} API response with success, sent_this_month, remaining_quota
+   *
+   * @example
+   * await client.sendMail({
+   *   to: ['user@example.com'],
+   *   subject: 'Hello from MyApp',
+   *   html: '<p>Welcome!</p>',
+   *   fromName: 'MyApp Team',
+   * });
+   */
+  async sendMail({ to, subject, html, fromName } = {}) {
+    const resp = await this.fetch(this._buildUrl('mail/send'), {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ to, subject, html, fromName })
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Send mail failed');
+    return json;
+  }
+
   // ---------- Developer Data APIs ----------
   // Note: Requires developerId to be set via constructor or setDeveloperId()
   
@@ -400,6 +430,11 @@ const authclient = {
   // generic authed call
   authed(path, opts) {
     return ensureClient().authed(path, opts);
+  },
+
+  // mail sending
+  sendMail(opts) {
+    return ensureClient().sendMail(opts);
   },
 
   // token helpers
