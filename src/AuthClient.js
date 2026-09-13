@@ -134,7 +134,8 @@ export class AuthClient {
     return {
       'Content-Type': 'application/json',
       'X-API-Key': this.apiKey,
-      // HMAC proof — NOT the secret itself
+      'X-API-Secret': this.apiSecret,
+      // HMAC proof
       ...(sigData ? { 'X-Timestamp': sigData.timestamp, 'X-Signature': sigData.signature } : {}),
       ...(this.googleClientId ? { 'X-Google-Client-Id': this.googleClientId } : {}),
       ...(this.developerId ? { 'X-Developer-Id': this.developerId } : {}),
