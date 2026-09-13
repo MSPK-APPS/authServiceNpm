@@ -1,7 +1,7 @@
 {
   "name": "@mspkapps/auth-client",
-  "version": "0.1.34",
-  "description": "Lightweight client for Your Auth Service",
+  "version": "0.2.0",
+  "description": "Lightweight client for MSPK Auth Service (v0.2: HMAC-SHA256 request signing — secret never transmitted)",
   "type": "module",
   "main": "src/index.js",
   "exports": {
