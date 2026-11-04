@@ -117,7 +117,7 @@ export class AuthClient {
    */
   async _sign(method, pathname, bodyObj) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
-    const bodyStr = bodyObj != null ? JSON.stringify(bodyObj) : '';
+    const bodyStr = (bodyObj && typeof bodyObj === 'object' && Object.keys(bodyObj).length > 0) ? JSON.stringify(bodyObj) : '';
     const bodyHash = await sha256hex(bodyStr);
     const message = `${method.toUpperCase()}:${pathname}:${timestamp}:${bodyHash}`;
     const signature = await hmacSha256hex(this.apiSecret, message);
