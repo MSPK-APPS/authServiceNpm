@@ -139,7 +139,7 @@ export class AuthClient {
       ...(sigData ? { 'X-Timestamp': sigData.timestamp, 'X-Signature': sigData.signature } : {}),
       ...(this.googleClientId ? { 'X-Google-Client-Id': this.googleClientId } : {}),
       ...(this.developerId ? { 'X-Developer-Id': this.developerId } : {}),
-      ...(this.token ? { Authorization: `UserToken ${this.token}` } : {}),
+      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
       ...extra
     };
   }
@@ -154,7 +154,7 @@ export class AuthClient {
     this.developerId = developerId || null;
   }
 
-  getAuthHeader() { return this.token ? { Authorization: `UserToken ${this.token}` } : {}; }
+  getAuthHeader() { return this.token ? { Authorization: `Bearer ${this.token}` } : {}; }
   logout() { this.setToken(null); }
 
   // ---------- public API methods ----------
@@ -168,7 +168,7 @@ export class AuthClient {
     });
     const json = await safeJson(resp);
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Register failed');
-    const token = json?.data?.user_token;
+    const token = json?.data?.access_token || json?.data?.accessToken || json?.data?.user_token;
     if (token) this.setToken(token);
     return json;
   }
@@ -183,7 +183,7 @@ export class AuthClient {
     });
     const json = await safeJson(resp);
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Login failed');
-    const token = json?.data?.user_token;
+    const token = json?.data?.access_token || json?.data?.accessToken || json?.data?.user_token;
     if (token) this.setToken(token);
     return json;
   }
@@ -207,7 +207,7 @@ export class AuthClient {
     });
     const json = await safeJson(resp);
     if (!resp.ok || json?.success === false) throw toError(resp, json, 'Google authentication failed');
-    const token = json?.data?.user_token;
+    const token = json?.data?.access_token || json?.data?.accessToken || json?.data?.user_token;
     if (token) this.setToken(token);
     return json;
   }
@@ -361,8 +361,243 @@ export class AuthClient {
     return json;
   }
 
+  async getUsers({ page = 1, limit = 50, search = '' } = {}) {
+    let path = `users?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}`;
+    if (search && search.trim()) {
+      path += `&search=${encodeURIComponent(search.trim())}`;
+    }
+    const sig = await this._sign('GET', this._buildPath('users'), null);
+    const resp = await this.fetch(this._buildUrl(path), {
+      method: 'GET',
+      headers: this._headers({}, sig)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get users failed');
+    return json;
+  }
+
+  /**
+   * Get single user by user ID using App credentials (API Key & Secret)
+   * GET /:apiKey/users/:userId
+   */
+  async getUser(userId) {
+    if (!userId) throw new Error('userId is required');
+    const path = `users/${encodeURIComponent(userId)}`;
+    const sig = await this._sign('GET', this._buildPath(path), null);
+    const resp = await this.fetch(this._buildUrl(path), {
+      method: 'GET',
+      headers: this._headers({}, sig)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Get user failed');
+    return json;
+  }
+
+  /**
+   * Update user by user ID using App credentials (API Key & Secret)
+   * PATCH /:apiKey/users/:userId
+   *
+   * @param {string} userId - User UUID
+   * @param {object} updates - Fields to update (e.g. { extra: { secondary_mail_verified: true } })
+   */
+  async updateUser(userId, updates = {}) {
+    if (!userId) throw new Error('userId is required');
+    const path = `users/${encodeURIComponent(userId)}`;
+    const sig = await this._sign('PATCH', this._buildPath(path), updates);
+    const resp = await this.fetch(this._buildUrl(path), {
+      method: 'PATCH',
+      headers: this._headers({}, sig),
+      body: JSON.stringify(updates)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Update user failed');
+    return json;
+  }
+
+  async refreshToken({ refreshToken } = {}) {
+    if (!refreshToken) {
+      throw new AuthError('refreshToken is required', 400, 'MISSING_REFRESH_TOKEN', null);
+    }
+    const body = { refresh_token: refreshToken };
+    const sig = await this._sign('POST', this._buildPath('auth/refresh-token'), body);
+    const resp = await this.fetch(this._buildUrl('auth/refresh-token'), {
+      method: 'POST',
+      headers: this._headers({}, sig),
+      body: JSON.stringify(body)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Refresh token failed');
+    const token = json?.data?.access_token || json?.data?.user_token;
+    if (token) this.setToken(token);
+    return json;
+  }
+
   // ---------- Developer Data APIs ----------
   // Note: Requires developerId to be set via constructor or setDeveloperId()
+
+
+  // ==================== MFA METHODS ====================
+
+  /**
+   * Verify MFA challenge during login
+   * @param {Object} params
+   * @param {string} params.mfa_token Ephemeral MFA challenge token
+   * @param {string} params.code 6-digit TOTP code or backup code
+   */
+  async verifyMFA({ mfa_token, code }) {
+    if (!mfa_token || !code) {
+      throw new AuthError('MFA token and verification code are required', 400, 'VALIDATION_ERROR', null);
+    }
+    const payload = { mfa_token, code };
+    const sig = await this._sign('POST', this._buildPath('auth/mfa/verify'), payload);
+    const resp = await this.fetch(this._buildUrl('auth/mfa/verify'), {
+      method: 'POST',
+      headers: this._headers({}, sig),
+      body: JSON.stringify(payload)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'MFA verification failed');
+    const token = json?.data?.access_token || json?.data?.accessToken || json?.data?.user_token;
+    if (token) this.setToken(token);
+    return json;
+  }
+
+  /**
+   * Setup MFA during mandatory onboarding
+   * @param {Object} params
+   * @param {string} params.mfa_token Ephemeral MFA onboarding token
+   */
+  async setupMFAOnboarding({ mfa_token }) {
+    if (!mfa_token) {
+      throw new AuthError('MFA onboarding token is required', 400, 'VALIDATION_ERROR', null);
+    }
+    const payload = { mfa_token };
+    const sig = await this._sign('POST', this._buildPath('auth/mfa/setup-onboarding'), payload);
+    const resp = await this.fetch(this._buildUrl('auth/mfa/setup-onboarding'), {
+      method: 'POST',
+      headers: this._headers({}, sig),
+      body: JSON.stringify(payload)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'MFA onboarding setup failed');
+    return json;
+  }
+
+  /**
+   * Confirm MFA during onboarding and log in
+   * @param {Object} params
+   * @param {string} params.mfa_token Ephemeral MFA onboarding token
+   * @param {string} params.code 6-digit TOTP code from authenticator app
+   */
+  async confirmMFAOnboarding({ mfa_token, code }) {
+    if (!mfa_token || !code) {
+      throw new AuthError('MFA token and verification code are required', 400, 'VALIDATION_ERROR', null);
+    }
+    const payload = { mfa_token, code };
+    const sig = await this._sign('POST', this._buildPath('auth/mfa/confirm-onboarding'), payload);
+    const resp = await this.fetch(this._buildUrl('auth/mfa/confirm-onboarding'), {
+      method: 'POST',
+      headers: this._headers({}, sig),
+      body: JSON.stringify(payload)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'MFA onboarding confirmation failed');
+    const token = json?.data?.access_token || json?.data?.accessToken || json?.data?.user_token;
+    if (token) this.setToken(token);
+    return json;
+  }
+
+  /**
+   * Get MFA status for current authenticated user
+   */
+  async getMFAStatus() {
+    const sig = await this._sign('GET', this._buildPath('user/mfa/status'), null);
+    const resp = await this.fetch(this._buildUrl('user/mfa/status'), {
+      method: 'GET',
+      headers: this._headers(this.getAuthHeader(), sig)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Failed to fetch MFA status');
+    return json;
+  }
+
+  /**
+   * Initiate MFA setup for logged-in user
+   */
+  async setupMFA() {
+    const sig = await this._sign('POST', this._buildPath('user/mfa/setup'), {});
+    const resp = await this.fetch(this._buildUrl('user/mfa/setup'), {
+      method: 'POST',
+      headers: this._headers(this.getAuthHeader(), sig),
+      body: JSON.stringify({})
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Failed to initiate MFA setup');
+    return json;
+  }
+
+  /**
+   * Confirm MFA setup for logged-in user
+   * @param {Object} params
+   * @param {string} params.code 6-digit TOTP code
+   */
+  async confirmMFA({ code }) {
+    if (!code) {
+      throw new AuthError('Verification code is required', 400, 'VALIDATION_ERROR', null);
+    }
+    const payload = { code };
+    const sig = await this._sign('POST', this._buildPath('user/mfa/confirm'), payload);
+    const resp = await this.fetch(this._buildUrl('user/mfa/confirm'), {
+      method: 'POST',
+      headers: this._headers(this.getAuthHeader(), sig),
+      body: JSON.stringify(payload)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Failed to confirm MFA');
+    return json;
+  }
+
+  /**
+   * Regenerate backup recovery codes
+   * @param {Object} params
+   * @param {string} params.code 6-digit TOTP code
+   */
+  async regenerateBackupCodes({ code }) {
+    if (!code) {
+      throw new AuthError('Two-factor authentication code is required', 400, 'VALIDATION_ERROR', null);
+    }
+    const payload = { code };
+    const sig = await this._sign('POST', this._buildPath('user/mfa/backup-codes/regenerate'), payload);
+    const resp = await this.fetch(this._buildUrl('user/mfa/backup-codes/regenerate'), {
+      method: 'POST',
+      headers: this._headers(this.getAuthHeader(), sig),
+      body: JSON.stringify(payload)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Failed to regenerate backup codes');
+    return json;
+  }
+
+  /**
+   * Disable MFA for logged-in user
+   * @param {Object} params
+   * @param {string} params.code 6-digit TOTP code or backup code
+   */
+  async disableMFA({ code }) {
+    if (!code) {
+      throw new AuthError('Two-factor authentication code is required', 400, 'VALIDATION_ERROR', null);
+    }
+    const payload = { code };
+    const sig = await this._sign('POST', this._buildPath('user/mfa/disable'), payload);
+    const resp = await this.fetch(this._buildUrl('user/mfa/disable'), {
+      method: 'POST',
+      headers: this._headers(this.getAuthHeader(), sig),
+      body: JSON.stringify(payload)
+    });
+    const json = await safeJson(resp);
+    if (!resp.ok || json?.success === false) throw toError(resp, json, 'Failed to disable MFA');
+    return json;
+  }
 
   async getDeveloperGroups() {
     if (!this.developerId) {
@@ -495,6 +730,17 @@ const authclient = {
     return ensureClient();
   },
 
+
+  // MFA shortcuts
+  verifyMFA(params) { return ensureClient().verifyMFA(params); },
+  setupMFAOnboarding(params) { return ensureClient().setupMFAOnboarding(params); },
+  confirmMFAOnboarding(params) { return ensureClient().confirmMFAOnboarding(params); },
+  getMFAStatus() { return ensureClient().getMFAStatus(); },
+  setupMFA() { return ensureClient().setupMFA(); },
+  confirmMFA(params) { return ensureClient().confirmMFA(params); },
+  regenerateBackupCodes(params) { return ensureClient().regenerateBackupCodes(params); },
+  disableMFA(params) { return ensureClient().disableMFA(params); },
+
   // auth shortcuts
   login(creds) { return ensureClient().login(creds); },
   register(data) { return ensureClient().register(data); },
@@ -523,6 +769,12 @@ const authclient = {
   getDeveloperApps(groupId = undefined) { return ensureClient().getDeveloperApps(groupId); },
   getAppUsers({ appId, page, limit }) { return ensureClient().getAppUsers({ appId, page, limit }); },
   getUserData(userId) { return ensureClient().getUserData(userId); },
+
+  // app data APIs
+  getUsers(opts) { return ensureClient().getUsers(opts); },
+  getUser(userId) { return ensureClient().getUser(userId); },
+  updateUser(userId, updates) { return ensureClient().updateUser(userId, updates); },
+  refreshToken(opts) { return ensureClient().refreshToken(opts); },
 };
 
 export { authclient, init };
